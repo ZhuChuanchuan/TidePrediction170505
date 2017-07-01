@@ -197,16 +197,19 @@ public class RegressionLineService {
 					
 					SimpleDateFormat FORMAT2 = new SimpleDateFormat("yyyy-M-d H:m:s");
 					Date tempTime = FORMAT2.parse(clsj);
+					
 					Calendar calendar = Calendar.getInstance();
 					calendar.setTime(tempTime);
-					int tempHour=calendar.get(Calendar.HOUR);
+					int tempHour=calendar.get(Calendar.HOUR_OF_DAY);
 					int tempMinute=calendar.get(Calendar.MINUTE);
 					
 					DateFormat df0=new SimpleDateFormat("yyyy/MM/dd");
 					String tideDate=df0.format(tempTime);
 					String todayDate=df0.format(new Date());
 					int daySpan=CommonMethod.daysBetween("2010/1/1",tideDate);  
-					float hourSpan=daySpan*60+tempHour+tempMinute/60f;
+					float hourSpan=daySpan*24+tempHour+tempMinute/60f;
+					//hourSpan=hourSpan; //相位差
+					//System.out.println(tempTime+" "+hourSpan+" "+daySpan+" "+tempHour);
 					
 					Float rkll=0f;
 					if(CommonMethod.daysBetween(tideDate, todayDate)==1){

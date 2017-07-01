@@ -311,4 +311,25 @@ public class RegressionLine {
         return b.divide(one, scale, BigDecimal.ROUND_HALF_UP).floatValue();  
   
     }  
+    private static void printSums(RegressionLine line) {  
+        System.out.println("\n数据点个数 n = " + line.getDataPointCount());  
+        System.out.println("\nSum x  = " + line.getSumX());  
+        System.out.println("Sum y  = " + line.getSumY());  
+        System.out.println("Sum xx = " + line.getSumXX());  
+        System.out.println("Sum xy = " + line.getSumXY());  
+        System.out.println("Sum yy = " + line.getSumYY());  
+  
+    }  
+  
+    /** 
+     * Print the regression line function. 
+     *  
+     * @param line 
+     *            the regression line 
+     */  
+    private static void printLine(RegressionLine line) {  
+        System.out.println("\n回归线公式:  y = " + line.getA1() + "x + "  
+                + line.getA0());  
+        System.out.println("误差：     R^2 = " + line.getR());  
+    } 
 }

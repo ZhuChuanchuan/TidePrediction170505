@@ -24,6 +24,8 @@ public class PredictionService {
 	String keepPath="d:\\PredictTide\\toll";
 	String startDate = "";
 	String endDate = "";
+	String Station="";
+	String StationCn="";
 	String indexFileName = "";// 训练参数
 	String TQFileName = "TQ"; // TQ流量文件
 	//当前日期
@@ -50,17 +52,18 @@ public class PredictionService {
 		 System.out.println(startDate);
 		 System.out.println(endDate);
 		for (int i = 0; i < stations.length; i++) {
-			String indexFilePath = keepPath + "\\"+stations[i]+"Index";
+			Station=stations[i];
+			String indexFilePath = keepPath + "\\"+Station+"Index";
 			File indexFile = new File(indexFilePath);
 			if (indexFile.exists()) { //调和常数存在
-				if (!PredictTide(stations[i]))
+				if (!PredictTide(Station))
 				{
 					System.out.println(++i+"pridictTide()返回为false");
 					return false;
 				}
-				System.out.println("--------"+stations[i]+"预测完成-------------");
+				System.out.println("--------"+Station+"预测完成-------------");
 			}else{
-				System.out.println("没有"+stations[i]+"调和常数");
+				System.out.println("没有"+Station+"调和常数");
 			}
 			
 		}
@@ -76,28 +79,27 @@ public class PredictionService {
 	}
 	//执行单个站点的站点预测
 	private boolean PredictTide (String station)  {
-		indexFileName = station + "Index";		 
-		  
-		String stationName = "";
+		indexFileName = station + "Index";	
 		if(station.equals("NT")){
-			stationName="南通";
+			StationCn="南通";
 		} else if (station.equals("JY")) {
-			stationName = "江阴";
+			StationCn = "江阴";
 		} else if (station.equals("TSG")) {
-			stationName = "天生港";
+			StationCn = "天生港";
 		} else if (station.equals("XLJ")) {
-			stationName = "徐六泾";
+			StationCn = "徐六泾";
 		}else if (station.equals("NJ")) {
-			stationName = "南京";
+			StationCn = "南京";
 		}
 		//TODO:求一元线性回归
 		RegressionLineService regreesionLineService=new RegressionLineService();
-		RegressionLine  regressionLine=regreesionLineService.RLService(startDate, endDate, stationName,indexFileName,keepPath,conn);
+		RegressionLine  regressionLine=regreesionLineService.RLService(startDate, endDate, StationCn,indexFileName,keepPath,conn);
 		float k=regressionLine.getA1();
 		float b=regressionLine.getA0();
+		
 		System.out.println("y="+k+"x+"+b);
 		
-		if (getFlow2File(startDate, endDate, stationName))
+		if (getFlow2File(startDate, endDate, StationCn))
 		{
 			FileWriter preInit_fw = null;
 			FileReader preResult_fr = null;
@@ -112,8 +114,6 @@ public class PredictionService {
 				preResultFile.createNewFile();
 
 				// 预测参数文件PreInit参数：spanHours，IndexPro，TQ
-				int daysSpan = CommonMethod.daysBetween(startDate, endDate);
-				int spanHours = daysSpan * 60;
 				String preInitFilePath = keepPath + "\\PreInit";
 				File preInitFile = new File(preInitFilePath);
 				if (preInitFile.exists()) {
@@ -121,7 +121,7 @@ public class PredictionService {
 				}
 				preInitFile.createNewFile();
 				preInit_fw = new FileWriter(preInitFile, true);
-				preInit_fw.write(String.valueOf(spanHours));
+				preInit_fw.write(String.valueOf(0)); //从2010/1/1开始
 				preInit_fw.write("\r\n");
 				preInit_fw.write(indexFileName);
 				preInit_fw.write("\r\n");
@@ -142,23 +142,39 @@ public class PredictionService {
 				} catch (Exception e) {
 					System.out.println(e);
 				}
-
 				// TODO: 返回文件数据
 				
-		        
 			    preResult_fr = new FileReader(preResultPath);
 			    preResult_br = new BufferedReader(preResult_fr);
 			    String strLine="";
-				while ((strLine = preResult_br.readLine()) != null) {
+			    
+			    int daysSpan = CommonMethod.daysBetween("2010/1/1", endDate);
+				int spanHours = daysSpan * 24;
+				
+				//取出水位站ID
+				ResultSet resultId = null;
+				PreparedStatement prep0 = null;
+				String selectSql="select ID from T_SZHD_SWJBXX where SWZMC=?";
+				prep0=conn.prepareStatement(selectSql);
+				prep0.setString(1,StationCn);
+				resultId=prep0.executeQuery();
+				
+				String StationId="";
+				while(resultId.next()){
+					StationId=resultId.getString(1);
+				}
+				prep0.close();
+				
+				while ((strLine = preResult_br.readLine()) != null&&StationId!="") {
 					if (strLine != "") {
 						String[] strs = strLine.split("\\s+");
 						DecimalFormat df = new DecimalFormat("#.00");
 						double time = Double.parseDouble(strs[1]) - spanHours;
-						time = Double.valueOf(df.format(time)); // 四舍五入保留两位小数点
+						time = Double.valueOf(df.format(time)); // 当天+小时数
+						Date dateTime = GetDate(time);
+						
 						double tide = Double.parseDouble(strs[2]);
 						tide = Double.valueOf(df.format(tide));
-						Date dateTime = GetDate(time);
-
 						//进行潮位校正 y=kx+b
 						String sTide=Double.toString(tide);
 						if(!Float.isNaN(k)&&!Float.isNaN(b)){
@@ -166,24 +182,7 @@ public class PredictionService {
 							tide=k*tide+b;
 							sTide=dformat.format(tide);
 						}
-						// 插入预测表，参数：站点，时间，潮位
-						Calendar cl = Calendar.getInstance();						
-						cl.setTime(dateTime);
-						if (station.equals("NJ")) {									
-							cl.add(Calendar.DAY_OF_YEAR, 1);
-						} else if (station.equals("JY")) {							
-    						cl.add(Calendar.DAY_OF_YEAR, 2);
-						} else if (station.equals("TSG")) {
-							cl.add(Calendar.DAY_OF_YEAR, 2);
-							cl.add(Calendar.HOUR, 1);
-							cl.add(Calendar.MINUTE, 30);
-						} else if (station.equals("XLJ")) {
-							cl.add(Calendar.DAY_OF_YEAR, 2);
-							cl.add(Calendar.HOUR, 2);							
-						}else if (station.equals("NT")) {							
-    						cl.add(Calendar.DAY_OF_YEAR, 2);
-						}
-						dateTime=cl.getTime();
+						
 						java.sql.Date stationTime = new java.sql.Date(dateTime.getTime());						
 						DateFormat df2 = DateFormat.getDateTimeInstance();
 						
@@ -194,16 +193,17 @@ public class PredictionService {
 						if(tideDate.compareTo(todayDate)>=0){
 							PreparedStatement prep = null;
 							PreparedStatement prep2 = null;
-							String delSql="delete from tb_PredictionData where preTime=to_date(?,'yyyy-mm-dd hh24:mi:ss') and StationName=?";
+							String delSql="delete from tb_PredictionData where preTime=to_date(?,'yyyy-mm-dd hh24:mi:ss') and StationId=?";
 							prep=conn.prepareStatement(delSql);
 							prep.setString(1, df2.format(dateTime).toString());
-							prep.setString(2,stationName);
+							prep.setString(2,StationId);
 							prep.executeUpdate();
-							String sql = "insert into tb_PredictionData (StationName,preTime,preTide) values(?,to_date(?,'yyyy-mm-dd hh24:mi:ss'),?)";
+							String sql = "insert into tb_PredictionData (StationId,StationName,preTime,preTide) values(?,?,to_date(?,'yyyy-mm-dd hh24:mi:ss'),?)";
 							prep2 = conn.prepareStatement(sql);
-							prep2.setString(1, stationName);												
-							prep2.setString(2, df2.format(dateTime).toString());
-							prep2.setString(3, sTide);
+							prep2.setString(1, StationId);	
+							prep2.setString(2, StationCn);												
+							prep2.setString(3, df2.format(dateTime).toString());
+							prep2.setString(4, sTide);
 							prep2.executeUpdate();
 							prep.close();
 							prep2.close();
@@ -226,7 +226,7 @@ public class PredictionService {
 				return false;
 			}
 		}
-		System.out.println(stationName+"预测完成");
+		System.out.println(StationCn+"预测完成");
 		return true;
 	}
 	private Date GetDate(double h) {
@@ -237,7 +237,7 @@ public class PredictionService {
 		try {
 			SimpleDateFormat sdf = new SimpleDateFormat("yyyy/MM/dd");
 			cal = Calendar.getInstance();
-			cal.setTime(sdf.parse(startDate));
+			cal.setTime(sdf.parse(endDate));
 			cal.add(Calendar.MINUTE, (int) m);
 			cal.add(Calendar.HOUR, (int) h);
 
@@ -249,113 +249,106 @@ public class PredictionService {
 	}
 	// 从数据库读入要预测的流量写入文件
 	private boolean getFlow2File(String startDate, String endDate,String station) {
-		TreeMap tideTreeMap = new TreeMap();
+		try{
+			CreateTQ();
+		}catch(Exception e){
+			return false;
+		}
+		return true;
+	}
+	private void CreateTQ() {
+		// 2017-4-19 15:22:35 TODO:前两天的实测潮位写入TQ
+		// 1.获取前3天实测数据  2.组织写入TQ 总条数 时间 rkll
 		
+		//取大通流量
 		PreparedStatement pre = null;
 		ResultSet result = null;
+		String sql = "select to_char(SJ,'yyyy/MM/dd HH:mm:ss'),RKLL from t_szhd_rgswllxx t where MC='大通' and SJ>=to_date(?,'yyyy-MM-dd hh:mi:ss') and SJ<to_date(?,'yyyy-MM-dd hh:mi:ss') order by SJ";
+		Float[] RKLL=new Float[5];
 		try {
-			String sql = "select to_char(SJ,'yyyy/MM/dd HH:mm:ss'),RKLL from t_szhd_rgswllxx t where MC='大通' and SJ>=to_date(?,'yyyy-MM-dd hh:mi:ss') and SJ<to_date(?,'yyyy-MM-dd hh:mi:ss') order by SJ";
 			pre = conn.prepareStatement(sql);
 			pre.setString(1,startDate);
 			pre.setString(2,endDate);
 			result = pre.executeQuery();
-			//System.out.print("111");
+			
+			int x=0;
 			while (result.next()) {
 				if(result.getString(2)==null)
 				{
 					System.out.println("没有入库大通流量");
-					return false;
+					try {
+						throw new Exception();
+					} catch (Exception e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
 				}
-				tideTreeMap.put(result.getString(1), result.getString(2));
+				try{
+					RKLL[x++]=Float.parseFloat(result.getString(2))/10000;
+					
+				}catch(Exception e){
+					System.out.println("大通流量出错");
+				}
 			}
-
-			// 将数据写入TQ文件
-			WriteFlow2TQ(tideTreeMap);
-
-		} catch (Exception e) {
-			e.printStackTrace();
-			return false;
-		} finally {
-			try {
-				result.close();
-				pre.close();				
-			} catch (SQLException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
+		} catch (SQLException e1) {
+			// TODO Auto-generated catch block
+			e1.printStackTrace();
 		}
-		return true;
-	}
-	//写入流量到TQ文件
-	private void WriteFlow2TQ(TreeMap tideTreeMap) {
-		// 1.创建文件，2.处理数据，3.写入
-		String tqFilepath = keepPath + "\\" + TQFileName;
-		File tqfile = new File(tqFilepath);
-		FileWriter fw = null;
-
-		int daysSpan = 0;
+		
+		ArrayList<String> tqRows=new ArrayList<String>();
+		int daySpan=0;
 		try {
-			daysSpan = CommonMethod.daysBetween(startDate, endDate);
+			daySpan = CommonMethod.daysBetween("2010/1/1",new SimpleDateFormat("yyyy/MM/dd").format(new Date()));
 		} catch (ParseException e1) {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
-		int interval = 30;// interval为时间间隔
-		int dayPointNum = (60 * 24) / interval;
-		int totalPointNum = dayPointNum * daysSpan;
-
-		double time = 0;
-		LinkedList<Double> qList = new LinkedList<Double>();
-		Iterator ite = tideTreeMap.keySet().iterator();
-		while (ite.hasNext()) {
-			String date = (String) ite.next();
-			Double q = Double.parseDouble(tideTreeMap.get(date).toString()) / 10000;
-			qList.add(q);
+		//float hourSpan=daySpan*24+tempHour+tempMinute/60f;
+		//第一条数据从00:04:00开始
+		float first=daySpan*24+4/60f; 
+		tqRows.add(first+" "+RKLL[3]);
+		
+		int twoDayCursor=2;
+		while(twoDayCursor<=480){
+			Float rkll=0f;;
+			if(twoDayCursor<240){
+				rkll=RKLL[3]; //前天流量
+			}else{
+				rkll=RKLL[4]; //昨天流量
+			}
+			
+			float hourSpan=first+6*twoDayCursor/60f;
+			tqRows.add(hourSpan+" "+rkll);
+			twoDayCursor++;
 		}
+		// count tqRows写入TQ
+		String TQFilePath = keepPath + "\\TQ";
+		File TQFile = new File(TQFilePath);
+		if (TQFile.exists()) {
+			TQFile.delete();
+		}
+		FileWriter tq_fw = null;
+
 		try {
-			if (tqfile.exists())
-				tqfile.delete();
-			tqfile.createNewFile();
-			fw = new FileWriter(tqfile, true);
-			fw.write(totalPointNum + "\r\n");
-			int num = qList.size();
-			if (daysSpan == qList.size()) {
-				for (int i = 0; i < daysSpan; i++) {
-					for (int j = 0; j <= dayPointNum; j++) {
-						time = time + (double) interval / 60;
-						String timeQStr = "";
-						if (i < num - 1) {
-							// String timeQStr=time+" "+qList.get(i);
-							timeQStr = time
-									+ " "
-									+ (qList.get(i) + (qList.get(i + 1) - qList
-											.get(i))
-											* (time - i * 24) / 24);
-						} else {
-							timeQStr = time + " " + qList.get(i);
-						}
-						fw.write(timeQStr);
-						fw.write("\r\n");
-						// System.out.println(timeQStr);
-					}
-				}
-			} else {
-				System.out.println("WriteFlow2TQ()时间间隔出错");
+			TQFile.createNewFile();
+			tq_fw = new FileWriter(TQFile, true);
+			tq_fw.write(String.valueOf(480)); // 两天总数（每六分钟一条）
+			tq_fw.write("\n");
+
+			Iterator<String> it = tqRows.iterator();
+			while (it.hasNext()) {
+				tq_fw.write(it.next());
+				tq_fw.write("\n");
 			}
-		} catch (Exception e) {
+
+			tq_fw.flush();
+			tq_fw.close();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
 			e.printStackTrace();
-		} finally {
-			try {
-				fw.close();
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
 		}
 	}
-	
-
-	//查询预测流量
+	// 查询预测流量
 	public String QueryPredictTide(String station, String startDate,
 			String endDate) throws ParseException {
 		String stationName = "";
@@ -370,25 +363,13 @@ public class PredictionService {
 		}else if(station.equals("NT")){
 			stationName="南通";
 		}
-		//截止日期加一天,用于sql语句控制
-//		SimpleDateFormat sdf=new SimpleDateFormat("yyyy/MM/dd HH:mm:ss");
-//		Date queryEndDate=sdf.parse(endDate);
-//		Calendar cl=Calendar.getInstance();
-//		cl.setTime(queryEndDate);
-//		cl.add(Calendar.DAY_OF_YEAR, 1);
-//		String finalDate=cl.getTime().toString();
+		
 		
 		JSONObject jsonObj = null;
 		
 		PreparedStatement pre = null;
 		ResultSet result = null;
 		try {
-//			Class.forName("oracle.jdbc.driver.OracleDriver");
-//			String url =orclUrl;
-//			String user = orclUser;
-//			String password = orclPass;
-//			conn = DriverManager.getConnection(url, user, password);
-			 //"select to_char(tTime,'yyyy/mm/dd'),FLOW from TB_TIDEPRE t where station=? and ttime>to_date(?,'yyyymmdd') and ttime<=to_date(?,'yyyymmdd') order by tTime";
 			String sql = "select to_char(PreTime,'yyyy/mm/dd HH:mm:ss'),to_char(t.PreTide,'fm99999999999999999990.00') from TB_PREDICTIONDATA t where STATIONNAME=? and PRETIME>to_date(?,'yyyy/mm/dd') and PRETIME<to_date(?,'yyyy/mm/dd') order by PRETIME";
 			pre = conn.prepareStatement(sql);
 			pre.setString(1, stationName);
@@ -402,8 +383,6 @@ public class PredictionService {
             while (result.next()) {
             	 categories.add(result.getString(1));
 				 values.add(result.getString(2));
-				 //resMap.put(result.getString(1), result.getString(2));
-				 //System.out.println(result.getString(1)+" "+ result.getString(2));
             }
             resMap.put("time", categories);
 			resMap.put("tide", values);
@@ -431,25 +410,5 @@ public class PredictionService {
 		
 		return jsonObj.toString();
 	}
-	private static void printSums(RegressionLine line) {  
-        System.out.println("\n数据点个数 n = " + line.getDataPointCount());  
-        System.out.println("\nSum x  = " + line.getSumX());  
-        System.out.println("Sum y  = " + line.getSumY());  
-        System.out.println("Sum xx = " + line.getSumXX());  
-        System.out.println("Sum xy = " + line.getSumXY());  
-        System.out.println("Sum yy = " + line.getSumYY());  
-  
-    }  
-  
-    /** 
-     * Print the regression line function. 
-     *  
-     * @param line 
-     *            the regression line 
-     */  
-    private static void printLine(RegressionLine line) {  
-        System.out.println("\n回归线公式:  y = " + line.getA1() + "x + "  
-                + line.getA0());  
-        System.out.println("误差：     R^2 = " + line.getR());  
-    }  
+	 
 }
