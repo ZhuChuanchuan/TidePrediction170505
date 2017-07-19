@@ -10,8 +10,13 @@ public class Main {
 	/**
 	 * @param args
 	 */
+	/*
+	 * 修改时间：2017年07月19日15:05:39
+	 * 修改内容：南通站第一次接入（预测高潮位稍有偏差）
+	 */
 	//修改时间：2016-10-19
 	//修改内容：加入潮位校正，根据前5天的数据对以后的潮位进行预测，选择参数为"今后几天"
+	
 	public static void main(String[] args) {
 		// TODO Auto-generated method stub
 		Connection con=null;
