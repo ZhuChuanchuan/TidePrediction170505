@@ -30,6 +30,8 @@ public class PredictionService {
 	String TQFileName = "TQ"; // TQ流量文件
 	//当前日期
 	Date dt=new Date();
+	
+	Integer[] RKLLs=null; //大通前五天流量
     
 	
 	public PredictionService(Connection con){
@@ -91,14 +93,19 @@ public class PredictionService {
 		}else if (station.equals("NJ")) {
 			StationCn = "南京";
 		}
-		//TODO:求一元线性回归
+		
+		//获取全局大通流量
+		RKLLs=getRKLL();
+		
+		//求一元线性回归
 		RegressionLineService regreesionLineService=new RegressionLineService();
-		RegressionLine  regressionLine=regreesionLineService.RLService(startDate, endDate, StationCn,indexFileName,keepPath,conn);
+		RegressionLine  regressionLine=regreesionLineService.RLService(startDate, endDate, StationCn,indexFileName,keepPath,conn,RKLLs);
 		float k=regressionLine.getA1();
 		float b=regressionLine.getA0();
 		
 		System.out.println("y="+k+"x+"+b);
 		
+		//预测
 		if (getFlow2File(startDate, endDate, StationCn))
 		{
 			FileWriter preInit_fw = null;
@@ -256,15 +263,12 @@ public class PredictionService {
 		}
 		return true;
 	}
-	private void CreateTQ() {
-		// 2017-4-19 15:22:35 TODO:前两天的实测潮位写入TQ
-		// 1.获取前3天实测数据  2.组织写入TQ 总条数 时间 rkll
-		
+	private Integer[] getRKLL(){
 		//取大通流量
 		PreparedStatement pre = null;
 		ResultSet result = null;
 		String sql = "select to_char(SJ,'yyyy/MM/dd HH:mm:ss'),RKLL from t_szhd_rgswllxx t where MC='大通' and SJ>=to_date(?,'yyyy-MM-dd hh:mi:ss') and SJ<to_date(?,'yyyy-MM-dd hh:mi:ss') order by SJ";
-		Float[] RKLL=new Float[5];
+		Integer[] RKLL=new Integer[5];
 		try {
 			pre = conn.prepareStatement(sql);
 			pre.setString(1,startDate);
@@ -284,7 +288,7 @@ public class PredictionService {
 					}
 				}
 				try{
-					RKLL[x++]=Float.parseFloat(result.getString(2))/10000;
+					RKLL[x++]=Integer.parseInt(result.getString(2));
 					
 				}catch(Exception e){
 					System.out.println("大通流量出错");
@@ -294,6 +298,12 @@ public class PredictionService {
 			// TODO Auto-generated catch block
 			e1.printStackTrace();
 		}
+		return RKLL;
+		
+	}
+	private void CreateTQ() {
+		// 2017-4-19 15:22:35 TODO:前两天的实测潮位写入TQ
+		// 1.获取前3天实测数据  2.组织写入TQ 总条数 时间 rkll
 		
 		ArrayList<String> tqRows=new ArrayList<String>();
 		int daySpan=0;
@@ -305,20 +315,25 @@ public class PredictionService {
 		}
 		//float hourSpan=daySpan*24+tempHour+tempMinute/60f;
 		//第一条数据从00:04:00开始
+		
 		float first=daySpan*24+4/60f; 
-		tqRows.add(first+" "+RKLL[3]);
+		Calendar calendar=Calendar.getInstance();
+		calendar.setTime(new Date());
+		calendar.set(Calendar.HOUR_OF_DAY, 0);
+        calendar.set(Calendar.MINUTE, 4);
+        calendar.set(Calendar.SECOND, 0);
+        double rkll=CommonMethod.getInterpolationByDate(calendar.getTime(), RKLLs);
+		tqRows.add(first+" "+rkll/10000);
 		
 		int twoDayCursor=2;
 		while(twoDayCursor<=480){
-			Float rkll=0f;;
-			if(twoDayCursor<240){
-				rkll=RKLL[3]; //前天流量
-			}else{
-				rkll=RKLL[4]; //昨天流量
-			}
-			
+
 			float hourSpan=first+6*twoDayCursor/60f;
-			tqRows.add(hourSpan+" "+rkll);
+			
+			calendar.add(Calendar.MINUTE, 6);
+			rkll=CommonMethod.getInterpolationByDate(calendar.getTime(), RKLLs);
+			System.out.println(calendar.getTime()+" "+hourSpan+" "+rkll);
+			tqRows.add(hourSpan+" "+rkll/10000);
 			twoDayCursor++;
 		}
 		// count tqRows写入TQ

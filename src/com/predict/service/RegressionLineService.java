@@ -26,8 +26,10 @@ public class RegressionLineService {
 	private String KeepPath;
 	private Connection Conn;
 	private String Station;
+	
+	Integer[] RKLLs=null;
 
-	public RegressionLine RLService(String startDate,String endDate,String station,String indexFileName,String keepPath,Connection conn){
+	public RegressionLine RLService(String startDate,String endDate,String station,String indexFileName,String keepPath,Connection conn,Integer[] rklls){
 		
 		StartDate=startDate;
 		EndDate=endDate;
@@ -35,6 +37,8 @@ public class RegressionLineService {
 		KeepPath=keepPath;
 		Conn=conn;
 		Station=station;
+		
+		RKLLs=rklls;
 		
 		//组织文件 Index TQ
 		RegressionLine line = new RegressionLine();
@@ -128,43 +132,13 @@ public class RegressionLineService {
 	}
 
 	private ArrayList<Float> CreateTQ() {
+		//大通流量插值 2017-8-3 21:43:29
 		// 2017-4-19 15:22:35 TODO:前两天的实测潮位写入TQ
 		// 1.获取前3天实测数据  2.组织写入TQ 总条数 时间 rkll
 		
-		//取大通流量
+		//取大通流量(全局变量）
 		PreparedStatement pre = null;
 		ResultSet result = null;
-		String sql = "select to_char(SJ,'yyyy/MM/dd HH:mm:ss'),RKLL from t_szhd_rgswllxx t where MC='大通' and SJ>=to_date(?,'yyyy-MM-dd hh:mi:ss') and SJ<to_date(?,'yyyy-MM-dd hh:mi:ss') order by SJ";
-		Float[] RKLL=new Float[5];
-		try {
-			pre = Conn.prepareStatement(sql);
-			pre.setString(1,StartDate);
-			pre.setString(2,EndDate);
-			result = pre.executeQuery();
-			
-			int x=0;
-			while (result.next()) {
-				if(result.getString(2)==null)
-				{
-					System.out.println("没有入库大通流量");
-					try {
-						throw new Exception();
-					} catch (Exception e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-				}
-				try{
-					RKLL[x++]=Float.parseFloat(result.getString(2))/10000;
-					
-				}catch(Exception e){
-					System.out.println("大通流量出错");
-				}
-			}
-		} catch (SQLException e1) {
-			// TODO Auto-generated catch block
-			e1.printStackTrace();
-		}
 		
 		ArrayList<Float> scTide=new ArrayList<Float>();
 		String sql2 = "select CLSW,CLSJ from T_SZHD_SWDTSLXX t where SWZID=(select ID from T_SZHD_SWJBXX where SWZMC=?) "
@@ -202,27 +176,31 @@ public class RegressionLineService {
 					calendar.setTime(tempTime);
 					int tempHour=calendar.get(Calendar.HOUR_OF_DAY);
 					int tempMinute=calendar.get(Calendar.MINUTE);
-					
 					DateFormat df0=new SimpleDateFormat("yyyy/MM/dd");
 					String tideDate=df0.format(tempTime);
-					String todayDate=df0.format(new Date());
+					//String todayDate=df0.format(new Date());
 					int daySpan=CommonMethod.daysBetween("2010/1/1",tideDate);  
 					float hourSpan=daySpan*24+tempHour+tempMinute/60f;
+					
 					//hourSpan=hourSpan; //相位差
 					//System.out.println(tempTime+" "+hourSpan+" "+daySpan+" "+tempHour);
-					
+					/*
 					Float rkll=0f;
 					if(CommonMethod.daysBetween(tideDate, todayDate)==1){
-						rkll=RKLL[2];
+						rkll=RKLL[2]; //第前3天
 					}else if(CommonMethod.daysBetween(tideDate, todayDate)==2){
-						rkll=RKLL[1];
+						rkll=RKLL[1]; //第前4天
 					}else if(CommonMethod.daysBetween(tideDate, todayDate)==3){
-						rkll=RKLL[0];
+						rkll=RKLL[0]; //第前5天
 					}
-					tqRows.add(hourSpan+" "+rkll);
+					*/
+					
+					Double rkll=CommonMethod.getInterpolationByDate(tempTime, RKLLs);
+					System.out.println(tempTime+" "+hourSpan+" "+rkll);
+					tqRows.add(hourSpan+" "+rkll/10000);
 					count++;
 				}
-				
+				System.out.println(count);
 				// count tqRows写入TQ
 				String TQFilePath = KeepPath + "\\TQ";
 				File TQFile = new File(TQFilePath);
